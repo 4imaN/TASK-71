@@ -1,0 +1,101 @@
+# Test environment for ./run_tests.sh
+#
+# Uses its own test_runtime_config volume (isolated from production).
+# The bootstrap service runs with REGENERATE=true so secrets are always fresh.
+# REGENERATE is a behavior flag, not a secret — safe to commit.
+# Postgres uses tmpfs (ephemeral; destroyed by down -v after each test run).
+#
+# No secret literals appear in this file.
+
+services:
+
+  bootstrap:
+    build:
+      context: .
+      target: bootstrap
+    environment:
+      REGENERATE: "true"
+    volumes:
+      - test_runtime_config:/runtime
+    restart: "no"
+
+  postgres:
+    image: postgres:16-alpine
+    command:
+      - "postgres"
+      - "-c"
+      - "ssl=on"
+      - "-c"
+      - "ssl_cert_file=/runtime/certs/postgres.crt"
+      - "-c"
+      - "ssl_key_file=/runtime/certs/postgres.key.pg"
+      - "-c"
+      - "ssl_ca_file=/runtime/certs/ca.crt"
+    environment:
+      POSTGRES_DB:            researchsvc_test
+      POSTGRES_USER:          researchsvc_test
+      POSTGRES_PASSWORD_FILE: /runtime/db_password
+    volumes:
+      - test_runtime_config:/runtime:ro
+    tmpfs:
+      - /var/lib/postgresql/data
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U researchsvc_test -d researchsvc_test"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server /runtime/redis.conf
+    volumes:
+      - test_runtime_config:/runtime:ro
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli --tls --cacert /runtime/certs/ca.crt -a \"$(grep requirepass /runtime/redis.conf | awk '{print $2}')\" ping 2>/dev/null | grep -q PONG"]
+      interval: 3s
+      timeout: 3s
+      retries: 15
+      start_period: 3s
+
+  app:
+    build:
+      context: .
+      target: app-dev
+    environment:
+      APP_ENV:          testing
+      APP_DEBUG:        "true"
+      APP_URL:          http://localhost
+      DB_CONNECTION:    pgsql
+      DB_HOST:          postgres
+      DB_PORT:          5432
+      DB_DATABASE:      researchsvc_test
+      DB_USERNAME:      researchsvc_test
+      DB_SSLMODE:       verify-ca
+      DB_SSLROOTCERT:   /runtime/certs/ca.crt
+      REDIS_SCHEME:     tls
+      REDIS_TLS_CA:     /runtime/certs/ca.crt
+      SESSION_DRIVER:   array
+      QUEUE_CONNECTION: sync
+      CACHE_STORE:      array
+      CAPTCHA_ENABLED:  "false"
+      LOG_CHANNEL:      stderr
+      LOG_LEVEL:        debug
+    volumes:
+      - test_runtime_config:/runtime:ro
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  test_runtime_config:

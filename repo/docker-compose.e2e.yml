@@ -1,0 +1,135 @@
+# E2E test environment for Research Services Playwright suite.
+#
+# Key differences from docker-compose.test.yml:
+#   - SESSION_DRIVER=database  (persistent sessions required for Livewire + ValidateAppSession)
+#   - SESSION_SECURE_COOKIE=false  (HTTP-only nginx — no TLS in this env)
+#   - nginx service with e2e.conf (HTTP on port 80, no TLS redirect)
+#   - playwright service runs the Playwright test suite
+#   - APP_URL=http://nginx so Livewire CSRF and form targets resolve correctly
+#
+# All secret values flow through the bootstrap → runtime_config volume pattern,
+# identical to the main runtime.  No secrets are hardcoded here.
+#
+# Usage:  ./run_e2e.sh   (do not invoke docker compose directly)
+
+services:
+
+  bootstrap:
+    build:
+      context: .
+      target: bootstrap
+    environment:
+      REGENERATE: "true"
+    volumes:
+      - e2e_runtime_config:/runtime
+    restart: "no"
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB:            researchsvc_e2e
+      POSTGRES_USER:          researchsvc_e2e
+      POSTGRES_PASSWORD_FILE: /runtime/db_password
+    volumes:
+      - e2e_runtime_config:/runtime:ro
+    tmpfs:
+      - /var/lib/postgresql/data
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U researchsvc_e2e -d researchsvc_e2e"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server /runtime/redis.conf
+    volumes:
+      - e2e_runtime_config:/runtime:ro
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$(grep requirepass /runtime/redis.conf | awk '{print $2}')\" ping 2>/dev/null | grep -q PONG"]
+      interval: 3s
+      timeout: 3s
+      retries: 15
+      start_period: 3s
+
+  app:
+    build:
+      context: .
+      target: app-dev
+    environment:
+      APP_ENV:               testing
+      APP_DEBUG:             "true"
+      APP_NAME:              "Research Services"
+      APP_URL:               http://nginx
+      DB_CONNECTION:         pgsql
+      DB_HOST:               postgres
+      DB_PORT:               5432
+      DB_DATABASE:           researchsvc_e2e
+      DB_USERNAME:           researchsvc_e2e
+      REDIS_HOST:            redis
+      REDIS_PORT:            "6379"
+      SESSION_DRIVER:        database
+      SESSION_SECURE_COOKIE: "false"
+      QUEUE_CONNECTION:      sync
+      CACHE_STORE:           array
+      CAPTCHA_ENABLED:       "false"
+      LOG_CHANNEL:           stderr
+      LOG_LEVEL:             debug
+    volumes:
+      - e2e_runtime_config:/runtime:ro
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # Healthcheck confirms php-fpm is listening on port 9000 (0x2328).
+    # php-fpm binds via IPv6 wildcard (zz-docker.conf: listen = 9000 bare port),
+    # so the socket appears ONLY in /proc/net/tcp6, not /proc/net/tcp.
+    # nginx depends on this being healthy before starting.
+    healthcheck:
+      test: ["CMD-SHELL", "grep -q ':2328 ' /proc/net/tcp6 || exit 1"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+
+  nginx:
+    image: nginx:1.27-alpine
+    volumes:
+      - ./docker/nginx/e2e.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      app:
+        condition: service_healthy
+    # Healthcheck confirms nginx is listening on port 80 (0x0050).
+    healthcheck:
+      test: ["CMD-SHELL", "grep -q ':0050 ' /proc/net/tcp || exit 1"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+
+  playwright:
+    image: mcr.microsoft.com/playwright:v1.49.0-jammy
+    working_dir: /e2e
+    environment:
+      BASE_URL:              http://nginx
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+    volumes:
+      - ./e2e:/e2e
+    depends_on:
+      nginx:
+        condition: service_healthy
+    command: >
+      sh -c "npm ci --prefer-offline && npx playwright test --reporter=list"
+
+volumes:
+  e2e_runtime_config:
