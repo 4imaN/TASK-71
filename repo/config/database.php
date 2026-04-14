@@ -167,13 +167,14 @@ return [
             'backoff_base' => env('REDIS_BACKOFF_BASE', 100),
             'backoff_cap' => env('REDIS_BACKOFF_CAP', 1000),
         ], env('REDIS_TLS_CA') ? [
-            'context' => [
+            // phpredis 6.x expects ['stream' => stream_context_resource]
+            'context' => ['stream' => stream_context_create([
                 'ssl' => [
                     'cafile'            => env('REDIS_TLS_CA'),
                     'verify_peer'       => true,
-                    'verify_peer_name'  => true,
+                    'verify_peer_name'  => false, // internal Docker network; CN verified by CA chain
                 ],
-            ],
+            ])],
         ] : []),
 
         'cache' => array_merge([
@@ -189,13 +190,13 @@ return [
             'backoff_base' => env('REDIS_BACKOFF_BASE', 100),
             'backoff_cap' => env('REDIS_BACKOFF_CAP', 1000),
         ], env('REDIS_TLS_CA') ? [
-            'context' => [
+            'context' => ['stream' => stream_context_create([
                 'ssl' => [
                     'cafile'            => env('REDIS_TLS_CA'),
                     'verify_peer'       => true,
-                    'verify_peer_name'  => true,
+                    'verify_peer_name'  => false,
                 ],
-            ],
+            ])],
         ] : []),
 
     ],

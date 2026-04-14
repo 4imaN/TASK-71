@@ -93,15 +93,23 @@ gen_service_cert "server" "localhost" "DNS:localhost,DNS:app,IP:127.0.0.1"
 
 # PostgreSQL — internal TLS
 gen_service_cert "postgres" "postgres" "DNS:postgres,DNS:localhost,IP:127.0.0.1"
-# PostgreSQL needs key readable by the postgres user (uid 70 in alpine)
+# PostgreSQL requires the key file to be owned by the postgres process user
+# (uid 70 in postgres:16-alpine) with mode 0600.  The bootstrap container
+# runs as root, so we must chown the copy to uid 70.
 cp "${CERT_DIR}/postgres.key" "${CERT_DIR}/postgres.key.pg"
+chown 70:70 "${CERT_DIR}/postgres.key.pg"
 chmod 600 "${CERT_DIR}/postgres.key.pg"
+# Cert is public material — ensure postgres user can read it
+chmod 644 "${CERT_DIR}/postgres.crt"
 
 # Redis — internal TLS
 gen_service_cert "redis" "redis" "DNS:redis,DNS:localhost,IP:127.0.0.1"
-# Redis runs as uid 999; key must be readable
+# Redis runs as uid 999 in redis:7-alpine; cert + key must be readable by that user.
 cp "${CERT_DIR}/redis.key" "${CERT_DIR}/redis.key.rds"
-chmod 644 "${CERT_DIR}/redis.key.rds"
+chown 999:999 "${CERT_DIR}/redis.key.rds"
+chmod 600 "${CERT_DIR}/redis.key.rds"
+# Cert and CA cert are world-readable (public material); key is restricted above.
+chmod 644 "${CERT_DIR}/redis.crt" "${CERT_DIR}/ca.crt"
 
 # Write app.env — sourced by docker-entrypoint.sh in app/worker/scheduler containers
 cat > "$CONFIG_FILE" <<EOF

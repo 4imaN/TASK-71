@@ -11,19 +11,25 @@ Internal reservation and service-catalog platform for research institutions. Sta
 The only host prerequisite is **Docker with the Compose plugin**. No PHP, no Node, no database client, no secret tooling is required on the host.
 
 ```bash
-# 1. Build images and start all services (generates runtime secrets automatically)
+# Single command — builds images, generates secrets, starts all services,
+# runs migrations, seeds reference data, and starts PHP-FPM.
 docker compose up --build
-
-# 2. In a second terminal — run migrations and seed reference data
-./init_db.sh
-
-# Application is now available at https://localhost:8443
-# Default admin credentials are printed to the init_db.sh output — change them immediately
 ```
+
+The application is available at **https://localhost:8443** once the `app` container logs `ready to handle connections`.
+
+Default admin credentials are printed to the app container logs during first startup — check with `docker compose logs app | grep Password`. Change them immediately after first login.
 
 > **HTTPS only.** The bootstrap service generates a self-signed TLS certificate. Your browser will warn on first access; accept the certificate for local development.
 
 > **Port strategy.** nginx binds only the HTTPS port on the host — default **8443** — so the stack starts cleanly on shared machines where 80/443 may already be in use. To use standard ports: `HTTPS_PORT=443 docker compose up --build`.
+
+### Full reset
+
+```bash
+# Destroy volumes, regenerate secrets, re-migrate, re-seed
+docker compose down -v && docker compose up --build
+```
 
 ---
 
@@ -37,31 +43,16 @@ How it works:
 2. The bootstrap service generates fresh secrets into a named Docker volume (`runtime_config`):
    - `APP_KEY`, `APP_ENCRYPTION_KEY` — via openssl rand
    - `DB_PASSWORD`, `REDIS_PASSWORD` — via /dev/urandom
-   - TLS certificate + key — via openssl req
+   - Internal CA + service TLS certificates for PostgreSQL and Redis — via openssl
+   - Host-facing TLS certificate for nginx — via openssl
    - `app.env` — sourced by the application entrypoint
    - `db_password` — read by PostgreSQL via `POSTGRES_PASSWORD_FILE`
-   - `redis.conf` — read by Redis at startup
-3. All application containers (`app`, `queue-worker`, `scheduler`) mount `runtime_config:/runtime:ro` and source `/runtime/app.env` via `docker/scripts/docker-entrypoint.sh` before starting PHP-FPM.
-4. The bootstrap service is idempotent: it skips regeneration if `/runtime/app.env` already exists (unless `REGENERATE=true`).
+   - `redis.conf` — read by Redis at startup (TLS-enabled, plaintext port disabled)
+3. All application containers (`app`, `queue-worker`, `scheduler`) mount `runtime_config:/runtime:ro` and source `/runtime/app.env` via `docker/scripts/docker-entrypoint.sh` before starting.
+4. The `app` container entrypoint automatically runs `php artisan migrate --force` and `php artisan db:seed --force` before starting PHP-FPM. Seeders are idempotent (`firstOrCreate`), so restarts do not duplicate data.
+5. The bootstrap service is idempotent: it skips regeneration if `/runtime/app.env` already exists (unless `REGENERATE=true`).
 
 **No secret values are committed, interpolated from host environment variables, or written to disk outside the named volume.**
-
----
-
-## Database initialization
-
-```bash
-# Assumes docker compose up --build is already running
-./init_db.sh
-
-# Start services and initialize in one step
-./init_db.sh --start
-
-# Destroy volumes, regenerate secrets, re-migrate, re-seed (full reset)
-./init_db.sh --reset
-```
-
-`init_db.sh` runs `php artisan migrate --force` and `php artisan db:seed --force` inside the running `app` container. It waits for PostgreSQL readiness using `pg_isready` via `docker compose exec` — no host psql needed.
 
 ---
 

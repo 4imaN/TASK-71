@@ -108,6 +108,7 @@ services:
     volumes:
       - runtime_config:/runtime:ro
       - app_storage:/var/www/html/storage
+      - app_public:/shared_public
     depends_on:
       bootstrap:
         condition: service_completed_successfully
@@ -120,6 +121,8 @@ services:
   # Only the HTTPS port is bound to the host.  Default is 8443 so the stack
   # starts cleanly on machines where 443 is already in use.
   # Override: HTTPS_PORT=443 docker compose up --build
+  # The app_public volume shares built CSS/JS assets from the app container
+  # so nginx can serve them directly without proxying through PHP-FPM.
   nginx:
     image: nginx:1.27-alpine
     ports:
@@ -127,6 +130,7 @@ services:
     volumes:
       - ./docker/nginx/nginx.conf.template:/etc/nginx/templates/default.conf.template:ro
       - runtime_config:/runtime:ro
+      - app_public:/var/www/html/public:ro  # Built CSS/JS assets copied by app entrypoint
     depends_on:
       - app
 
@@ -206,3 +210,4 @@ volumes:
   runtime_config:   # Generated secrets; persists across restarts; destroyed by down -v
   postgres_data:
   app_storage:
+  app_public:       # Built CSS/JS assets shared between app and nginx containers
