@@ -176,11 +176,14 @@ class LoginTest extends TestCase
     {
         config(['app.captcha_enabled' => true]);
 
+        // Seed shipped defaults so the test reflects production config
+        $this->seed(\Database\Seeders\SystemConfigSeeder::class);
+
         $user = $this->makeUser();
 
         /** @var \App\Services\Admin\SystemConfigService $configSvc */
         $configSvc = app(\App\Services\Admin\SystemConfigService::class);
-        // Use the shipped defaults
+        // Use the shipped defaults (captcha=3, lockout=5)
         $captchaThreshold = $configSvc->captchaShowAfterAttempts();  // 3
         $lockoutThreshold = $configSvc->bruteForceMaxAttempts();     // 5
 

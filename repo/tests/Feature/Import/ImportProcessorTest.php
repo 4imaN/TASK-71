@@ -477,12 +477,13 @@ class ImportProcessorTest extends TestCase
         $configSvc = app(\App\Services\Admin\SystemConfigService::class);
         $configSvc->set('import_similarity_threshold', '0.99');
 
-        // Create an existing service
+        // Create an existing service (draft status avoids check constraints on published services)
         $admin = $this->admin;
         $service = \App\Models\Service::create([
+            'uuid'        => (string) \Illuminate\Support\Str::uuid(),
             'title'       => 'Data Consultation',
             'slug'        => 'data-consultation',
-            'status'      => 'published',
+            'status'      => 'draft',
             'is_free'     => true,
             'fee_amount'  => 0,
             'fee_currency' => 'USD',

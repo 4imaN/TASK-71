@@ -47,9 +47,9 @@ chown -R www-data:www-data /var/www/html/storage
 chmod -R 775 /var/www/html/storage
 
 # Run migrations + seeders automatically on the main app container only
-# (php-fpm). Queue-worker and scheduler skip this — they start with
-# "php artisan queue:work" / "php artisan schedule:work" instead.
-if [ "$1" = "php-fpm" ]; then
+# (php-fpm) and only outside of the test environment.  The test runner
+# (run_tests.sh) manages its own migrations via RefreshDatabase.
+if [ "$1" = "php-fpm" ] && [ "$APP_ENV" != "testing" ]; then
     echo "entrypoint: running migrations..."
     php artisan migrate --force 2>&1
     echo "entrypoint: running seeders..."
