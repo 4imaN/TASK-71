@@ -144,7 +144,7 @@ class RelationshipApiTest extends TestCase
                 'target_id' => $s2->id,
             ])
             ->assertStatus(201)
-            ->assertJsonStructure(['instance' => ['id', 'definition_id', 'source_entity_id', 'target_entity_id']]);
+            ->assertJsonStructure(['instance' => ['id', 'definition_id', 'source_id', 'target_id']]);
     }
 
     public function test_create_instance_validates_entity_existence(): void
