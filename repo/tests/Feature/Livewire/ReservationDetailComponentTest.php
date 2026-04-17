@@ -96,9 +96,10 @@ class ReservationDetailComponentTest extends TestCase
     {
         $other = User::factory()->create();
 
-        // Should get a 404 since ownership is enforced
+        // Ownership is enforced via findOrFail with user_id scope — throws ModelNotFoundException
+        $this->expectException(\Illuminate\Database\Eloquent\ModelNotFoundException::class);
+
         Livewire::actingAs($other)
-            ->test(ReservationDetailComponent::class, ['uuid' => $this->reservation->uuid])
-            ->assertStatus(404);
+            ->test(ReservationDetailComponent::class, ['uuid' => $this->reservation->uuid]);
     }
 }

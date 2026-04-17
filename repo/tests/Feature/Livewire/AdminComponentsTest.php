@@ -75,7 +75,7 @@ class AdminComponentsTest extends TestCase
 
         Livewire::actingAs($this->admin)
             ->test(UserManagementComponent::class)
-            ->call('requestLock', $target->id)
+            ->call('lockUser', $target->id)
             ->assertSet('showStepUp', true);
     }
 

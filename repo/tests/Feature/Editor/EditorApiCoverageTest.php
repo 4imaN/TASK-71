@@ -96,17 +96,19 @@ class EditorApiCoverageTest extends TestCase
         $response->assertJsonPath('service.status', 'archived');
     }
 
-    public function test_archive_returns_422_for_already_archived(): void
+    public function test_archive_is_idempotent_for_already_archived(): void
     {
         // Publish then archive
         app(ServiceEditorService::class)->publish($this->service, $this->editor);
         app(ServiceEditorService::class)->archive($this->service, $this->editor);
 
+        // Archiving again is idempotent — returns 200 with status still 'archived'
         $response = $this->withoutMiddleware(ValidateAppSession::class)
             ->actingAs($this->editor)
             ->postJson("/api/v1/editor/services/{$this->service->id}/archive");
 
-        $response->assertStatus(422);
+        $response->assertOk();
+        $response->assertJsonPath('service.status', 'archived');
     }
 
     public function test_archive_requires_editor_role(): void

@@ -90,6 +90,7 @@ class RelationshipApiTest extends TestCase
             'target_entity_type' => 'tag',
             'cardinality'        => 'many_to_many',
             'is_active'          => true,
+            'created_by'         => $this->admin->id,
         ]);
 
         $response = $this->withoutMiddleware(ValidateAppSession::class)
@@ -110,6 +111,7 @@ class RelationshipApiTest extends TestCase
             'target_entity_type' => 'service',
             'cardinality'        => 'many_to_many',
             'is_active'          => true,
+            'created_by'         => $this->admin->id,
         ]);
 
         $this->withoutMiddleware(ValidateAppSession::class)
@@ -129,6 +131,7 @@ class RelationshipApiTest extends TestCase
             'target_entity_type' => 'service',
             'cardinality'        => 'many_to_many',
             'is_active'          => true,
+            'created_by'         => $this->admin->id,
         ]);
 
         $s1 = Service::factory()->create();
@@ -152,6 +155,7 @@ class RelationshipApiTest extends TestCase
             'target_entity_type' => 'service',
             'cardinality'        => 'many_to_many',
             'is_active'          => true,
+            'created_by'         => $this->admin->id,
         ]);
 
         $this->withoutMiddleware(ValidateAppSession::class)
@@ -173,6 +177,7 @@ class RelationshipApiTest extends TestCase
             'target_entity_type' => 'service',
             'cardinality'        => 'many_to_many',
             'is_active'          => true,
+            'created_by'         => $this->admin->id,
         ]);
 
         $s1 = Service::factory()->create();
