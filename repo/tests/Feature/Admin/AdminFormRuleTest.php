@@ -181,4 +181,48 @@ class AdminFormRuleTest extends TestCase
 
         $response->assertStatus(403);
     }
+
+    // ── PUT /api/v1/admin/form-rules/{id} (item 10) ─────────────────────────
+
+    public function test_api_update_rule_requires_stepup(): void
+    {
+        $rule = FormRule::create([
+            'entity_type' => 'user',
+            'field_name'  => 'display_name',
+            'rules'       => ['required' => true],
+            'is_active'   => true,
+        ]);
+
+        $response = $this->withoutMiddleware(ValidateAppSession::class)
+            ->actingAs($this->admin)
+            ->putJson("/api/v1/admin/form-rules/{$rule->id}", [
+                'rules' => ['required' => true, 'min_length' => 5],
+            ]);
+
+        $response->assertStatus(403);
+    }
+
+    public function test_api_update_rule_with_stepup_returns_200(): void
+    {
+        $rule = FormRule::create([
+            'entity_type' => 'user',
+            'field_name'  => 'display_name',
+            'rules'       => ['required' => true],
+            'is_active'   => true,
+        ]);
+
+        $this->withoutMiddleware(ValidateAppSession::class)
+            ->actingAs($this->admin)
+            ->postJson('/api/v1/admin/step-up', ['password' => 'secret123'])
+            ->assertOk();
+
+        $response = $this->withoutMiddleware(ValidateAppSession::class)
+            ->actingAs($this->admin)
+            ->putJson("/api/v1/admin/form-rules/{$rule->id}", [
+                'rules' => ['required' => true, 'min_length' => 5],
+            ]);
+
+        $response->assertOk();
+        $response->assertJsonStructure(['rule' => ['id', 'entity_type', 'field_name']]);
+    }
 }

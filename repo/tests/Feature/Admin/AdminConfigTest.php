@@ -113,18 +113,31 @@ class AdminConfigTest extends TestCase
 
     public function test_stepup_is_granted_after_verify(): void
     {
+        SystemConfig::updateOrCreate(
+            ['key' => 'pending_reservation_expiry_minutes'],
+            ['value' => '30', 'type' => 'integer', 'description' => 'Expiry minutes']
+        );
+
         $this->withoutMiddleware(ValidateAppSession::class)
             ->actingAs($this->admin)
             ->postJson('/api/v1/admin/step-up', ['password' => 'secret123'])
             ->assertOk();
 
-        // The step-up grant is in the test session — verify via a protected endpoint
+        // Protected endpoint should succeed with a valid step-up grant
         $response = $this->withoutMiddleware(ValidateAppSession::class)
             ->actingAs($this->admin)
-            ->putJson('/api/v1/admin/system-config/pending_reservation_expiry_minutes', ['value' => 30]);
+            ->putJson('/api/v1/admin/system-config/pending_reservation_expiry_minutes', ['value' => 45]);
 
-        // Should not get 403 (step-up not required error) — either 200 or 422/validation but not 403
-        $this->assertNotEquals(403, $response->status());
+        $response->assertOk();
+        $response->assertJsonStructure(['config' => ['key', 'value']]);
+        $response->assertJsonPath('config.key', 'pending_reservation_expiry_minutes');
+        $response->assertJsonPath('config.value', '45');
+
+        // Verify persisted change
+        $this->assertDatabaseHas('system_config', [
+            'key'   => 'pending_reservation_expiry_minutes',
+            'value' => '45',
+        ]);
     }
 
     public function test_stepup_is_not_granted_when_expired(): void

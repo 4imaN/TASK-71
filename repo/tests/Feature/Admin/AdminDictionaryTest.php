@@ -143,4 +143,72 @@ class AdminDictionaryTest extends TestCase
 
         $response->assertStatus(403);
     }
+
+    // ── PUT /api/v1/admin/data-dictionary/values/{id} (item 9) ───────────────
+
+    public function test_api_update_value_requires_stepup(): void
+    {
+        $value = DataDictionaryValue::create([
+            'type_id'    => $this->type->id,
+            'key'        => 'eta',
+            'label'      => 'Eta Original',
+            'is_active'  => true,
+            'sort_order' => 0,
+        ]);
+
+        $response = $this->withoutMiddleware(ValidateAppSession::class)
+            ->actingAs($this->admin)
+            ->putJson("/api/v1/admin/data-dictionary/values/{$value->id}", [
+                'label' => 'Eta Updated',
+            ]);
+
+        $response->assertStatus(403);
+    }
+
+    public function test_api_update_value_with_stepup_returns_200(): void
+    {
+        $value = DataDictionaryValue::create([
+            'type_id'    => $this->type->id,
+            'key'        => 'theta',
+            'label'      => 'Theta Original',
+            'is_active'  => true,
+            'sort_order' => 0,
+        ]);
+
+        // Obtain step-up grant
+        $this->withoutMiddleware(ValidateAppSession::class)
+            ->actingAs($this->admin)
+            ->postJson('/api/v1/admin/step-up', ['password' => 'secret123'])
+            ->assertOk();
+
+        $response = $this->withoutMiddleware(ValidateAppSession::class)
+            ->actingAs($this->admin)
+            ->putJson("/api/v1/admin/data-dictionary/values/{$value->id}", [
+                'label' => 'Theta Updated',
+            ]);
+
+        $response->assertOk();
+        $response->assertJsonStructure(['value' => ['id', 'key', 'label']]);
+        $response->assertJsonPath('value.label', 'Theta Updated');
+        $this->assertDatabaseHas('data_dictionary_values', [
+            'id'    => $value->id,
+            'label' => 'Theta Updated',
+        ]);
+    }
+
+    public function test_api_update_value_returns_404_for_missing_id(): void
+    {
+        $this->withoutMiddleware(ValidateAppSession::class)
+            ->actingAs($this->admin)
+            ->postJson('/api/v1/admin/step-up', ['password' => 'secret123'])
+            ->assertOk();
+
+        $response = $this->withoutMiddleware(ValidateAppSession::class)
+            ->actingAs($this->admin)
+            ->putJson('/api/v1/admin/data-dictionary/values/99999', [
+                'label' => 'Does Not Exist',
+            ]);
+
+        $response->assertStatus(404);
+    }
 }

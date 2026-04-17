@@ -1,5 +1,7 @@
 # Research Services
 
+**Project type:** fullstack
+
 Internal reservation and service-catalog platform for research institutions. Staff, faculty, and graduate learners discover library and research support services, browse time-slot availability, and make reservations. Administrators manage the service catalog, enforce booking policies, review audit logs, and import data from HR, SSO, and research-administration systems.
 
 **Stack:** Laravel 11.51 · Livewire 3.7 · Alpine.js · PostgreSQL 16 · Redis 7 · Docker Compose v2
@@ -13,22 +15,51 @@ The only host prerequisite is **Docker with the Compose plugin**. No PHP, no Nod
 ```bash
 # Single command — builds images, generates secrets, starts all services,
 # runs migrations, seeds reference data, and starts PHP-FPM.
+docker-compose up --build
+# Or with the Compose plugin:
 docker compose up --build
 ```
 
 The application is available at **https://localhost:8443** once the `app` container logs `ready to handle connections`.
 
-Default admin credentials are printed to the app container logs during first startup — check with `docker compose logs app | grep Password`. Change them immediately after first login.
+### Demo credentials
+
+The `AdminUserSeeder` creates one account per role on every fresh installation. Credentials are deterministic and stable across all environments. Every account has `must_change_password=true` — the user is forced to set a new password on first login.
+
+| Role | Username | Password |
+|---|---|---|
+| `administrator` | `admin` | `AdminDemo1!` |
+| `content_editor` | `editor` | `EditorDemo1!` |
+| `learner` | `learner` | `LearnerDemo1!` |
+
+> **Security:** Change these passwords immediately on any non-local deployment. The seeder is idempotent — it skips accounts that already exist.
+
+For E2E testing, the `E2eSeeder` creates separate deterministic accounts (see [E2E test fixtures](#e2e-test-fixtures-e2eseeder) below).
+
+### Verifying the system works
+
+After `docker-compose up --build` completes:
+
+1. Open **https://localhost:8443** — accept the self-signed certificate warning.
+2. You should see the **Research Services — Sign In** page with username/password fields.
+3. Log in with username `admin` and password `AdminDemo1!`.
+4. You will be prompted to change the password (forced password change on first login).
+5. After changing, you land on the **Dashboard** — "Welcome back, System Administrator".
+6. Navigate to **Catalog** — the service catalog page loads (empty until services are created).
+7. Navigate to **Admin** → the **User Management** page shows all three demo accounts.
+8. Navigate to **Admin** → sidebar links to Policies, Data Dictionary, Form Rules, Audit Logs, Backups, Import/Export.
+9. Log out, then log in as `editor` / `EditorDemo1!` — verify the **Editor** nav link appears.
+10. Log out, then log in as `learner` / `LearnerDemo1!` — verify the **Catalog** and **Reservations** pages load.
 
 > **HTTPS only.** The bootstrap service generates a self-signed TLS certificate. Your browser will warn on first access; accept the certificate for local development.
 
-> **Port strategy.** nginx binds only the HTTPS port on the host — default **8443** — so the stack starts cleanly on shared machines where 80/443 may already be in use. To use standard ports: `HTTPS_PORT=443 docker compose up --build`.
+> **Port strategy.** nginx binds only the HTTPS port on the host — default **8443** — so the stack starts cleanly on shared machines where 80/443 may already be in use. To use standard ports: `HTTPS_PORT=443 docker-compose up --build`.
 
 ### Full reset
 
 ```bash
 # Destroy volumes, regenerate secrets, re-migrate, re-seed
-docker compose down -v && docker compose up --build
+docker-compose down -v && docker-compose up --build
 ```
 
 ---
@@ -78,15 +109,7 @@ The test runner uses `docker-compose.test.yml`, which:
 - Runs the app with `APP_ENV=testing`, `SESSION_DRIVER=array`, `QUEUE_CONNECTION=sync`
 - Tears down all containers and volumes on exit via `trap`
 
-The broad test suite (`./run_tests.sh`) requires PostgreSQL and Redis via Docker. Targeted local tests (catalog, auth) can be run locally with SQLite in-memory:
-
-```bash
-APP_KEY=base64:$(openssl rand -base64 32) \
-  DB_CONNECTION=sqlite DB_DATABASE=":memory:" \
-  php artisan test --testsuite=Feature --filter="CatalogBrowseTest|CatalogFavoriteTest|CatalogRecentViewTest"
-```
-
-PostgreSQL-specific constructs (`CREATE RULE`, `ILIKE`) are guarded behind driver checks so migrations and queries degrade cleanly to SQLite in the local test path.
+All tests run inside Docker. No host PHP or database is required.
 
 ---
 
@@ -115,13 +138,15 @@ The Playwright suite covers the core learner and admin/operator journeys against
 - Runs the `mcr.microsoft.com/playwright:v1.49.0-jammy` container in the same Docker network
 - Tears down all containers and volumes on exit (`--no-teardown` to suppress)
 
-**E2E test fixtures (`E2eSeeder`)**
+**E2E test fixtures (`E2eSeeder`)**<a id="e2e-test-fixtures-e2eseeder"></a>
 
-| Fixture | Credentials |
-|---|---|
-| Admin user (`e2e_admin`) | `AdminE2e1!` |
-| Learner user (`e2e_learner`) | `LearnerE2e1!` |
-| Service: "Data Consultation (E2E)" | slug `e2e-data-consultation`, 2 upcoming slots |
+| Fixture | Role | Username | Password |
+|---|---|---|---|
+| Admin user | `administrator` | `e2e_admin` | `AdminE2e1!` |
+| Learner user | `learner` | `e2e_learner` | `LearnerE2e1!` |
+| Service: "Data Consultation (E2E)" | — | slug `e2e-data-consultation` | 2 upcoming slots |
+
+All three seeded roles are available: `administrator`, `content_editor`, `learner`. The E2E seeder creates accounts for admin and learner. Content-editor coverage uses admin credentials (administrators hold a superset of editor permissions).
 
 **Specs**
 
@@ -136,15 +161,18 @@ The Playwright suite covers the core learner and admin/operator journeys against
 
 Screenshots land in `e2e/test-results/` (one per test, always captured). The HTML report is at `e2e/test-results/html-report/`. Both directories are gitignored.
 
-**First-run on host (headed / debug mode)**
+**Debugging with containers alive**
 
 ```bash
-cd e2e
-npm ci
-BASE_URL=https://localhost:8443 npx playwright test --headed
-```
+# Run E2E suite and keep containers running for inspection
+./run_e2e.sh --no-teardown
 
-This requires a running instance (either `docker compose up --build` + `./init_db.sh` + manual E2eSeeder, or `--no-teardown` from a previous `./run_e2e.sh` run).
+# Re-run a single spec against the still-running environment
+./run_e2e.sh --no-teardown --spec 01-auth
+
+# Tear down manually when done
+docker-compose -f docker-compose.e2e.yml -p researchsvc-e2e down -v --remove-orphans
+```
 
 ---
 

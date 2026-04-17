@@ -258,6 +258,19 @@ class UserGovernanceTest extends TestCase
             ->assertStatus(403);
     }
 
+    public function test_api_unlock_succeeds_with_stepup(): void
+    {
+        $this->target->update(['status' => 'locked']);
+        session([StepUpService::SESSION_KEY => now()->toIso8601String()]);
+
+        $this->actingAs($this->admin)
+            ->postJson("/api/v1/admin/users/{$this->target->id}/unlock")
+            ->assertOk()
+            ->assertJsonPath('user.status', 'active');
+
+        $this->assertDatabaseHas('users', ['id' => $this->target->id, 'status' => 'active']);
+    }
+
     public function test_api_suspend_requires_stepup(): void
     {
         $this->actingAs($this->admin)
@@ -265,11 +278,37 @@ class UserGovernanceTest extends TestCase
             ->assertStatus(403);
     }
 
+    public function test_api_suspend_succeeds_with_stepup(): void
+    {
+        session([StepUpService::SESSION_KEY => now()->toIso8601String()]);
+
+        $this->actingAs($this->admin)
+            ->postJson("/api/v1/admin/users/{$this->target->id}/suspend")
+            ->assertOk()
+            ->assertJsonPath('user.status', 'suspended');
+
+        $this->assertDatabaseHas('users', ['id' => $this->target->id, 'status' => 'suspended']);
+    }
+
     public function test_api_force_password_reset_requires_stepup(): void
     {
         $this->actingAs($this->admin)
             ->postJson("/api/v1/admin/users/{$this->target->id}/force-password-reset")
             ->assertStatus(403);
+    }
+
+    public function test_api_force_password_reset_succeeds_with_stepup(): void
+    {
+        session([StepUpService::SESSION_KEY => now()->toIso8601String()]);
+
+        $this->actingAs($this->admin)
+            ->postJson("/api/v1/admin/users/{$this->target->id}/force-password-reset")
+            ->assertOk();
+
+        $this->assertDatabaseHas('users', [
+            'id'                   => $this->target->id,
+            'must_change_password' => true,
+        ]);
     }
 
     public function test_api_revoke_role_blocks_last_admin(): void
@@ -481,5 +520,108 @@ class UserGovernanceTest extends TestCase
             ->getJson("/api/v1/admin/users/{$this->target->id}")
             ->assertOk()
             ->assertJsonStructure(['user' => ['id', 'username', 'roles']]);
+    }
+
+    // ── API: POST /admin/users/{id}/reactivate (item 11) ─────────────────────
+
+    public function test_api_reactivate_requires_stepup(): void
+    {
+        $this->target->update(['status' => 'suspended']);
+
+        $this->actingAs($this->admin)
+            ->postJson("/api/v1/admin/users/{$this->target->id}/reactivate")
+            ->assertStatus(403)
+            ->assertJsonFragment(['message' => 'Step-up verification required.']);
+    }
+
+    public function test_api_reactivate_succeeds_with_stepup(): void
+    {
+        $this->target->update(['status' => 'suspended']);
+        session([StepUpService::SESSION_KEY => now()->toIso8601String()]);
+
+        $this->actingAs($this->admin)
+            ->postJson("/api/v1/admin/users/{$this->target->id}/reactivate")
+            ->assertOk()
+            ->assertJsonPath('user.status', 'active');
+
+        $this->assertDatabaseHas('users', ['id' => $this->target->id, 'status' => 'active']);
+    }
+
+    public function test_api_reactivate_forbidden_for_non_admin(): void
+    {
+        $learner = User::factory()->create();
+
+        $this->actingAs($learner)
+            ->postJson("/api/v1/admin/users/{$this->target->id}/reactivate")
+            ->assertForbidden();
+    }
+
+    // ── API: POST /admin/users/{id}/revoke-sessions (item 12) ────────────────
+
+    public function test_api_revoke_sessions_requires_stepup(): void
+    {
+        $this->actingAs($this->admin)
+            ->postJson("/api/v1/admin/users/{$this->target->id}/revoke-sessions")
+            ->assertStatus(403)
+            ->assertJsonFragment(['message' => 'Step-up verification required.']);
+    }
+
+    public function test_api_revoke_sessions_succeeds_with_stepup(): void
+    {
+        session([StepUpService::SESSION_KEY => now()->toIso8601String()]);
+
+        $this->actingAs($this->admin)
+            ->postJson("/api/v1/admin/users/{$this->target->id}/revoke-sessions")
+            ->assertOk()
+            ->assertJsonStructure(['sessions_revoked']);
+    }
+
+    public function test_api_revoke_sessions_forbidden_for_non_admin(): void
+    {
+        $learner = User::factory()->create();
+
+        $this->actingAs($learner)
+            ->postJson("/api/v1/admin/users/{$this->target->id}/revoke-sessions")
+            ->assertForbidden();
+    }
+
+    // ── API: POST /admin/users/{id}/roles (item 13) ──────────────────────────
+
+    public function test_api_assign_role_requires_stepup(): void
+    {
+        $this->actingAs($this->admin)
+            ->postJson("/api/v1/admin/users/{$this->target->id}/roles", ['role' => 'learner'])
+            ->assertStatus(403)
+            ->assertJsonFragment(['message' => 'Step-up verification required.']);
+    }
+
+    public function test_api_assign_role_succeeds_with_stepup(): void
+    {
+        session([StepUpService::SESSION_KEY => now()->toIso8601String()]);
+
+        $this->actingAs($this->admin)
+            ->postJson("/api/v1/admin/users/{$this->target->id}/roles", ['role' => 'content_editor'])
+            ->assertOk()
+            ->assertJsonPath('user.id', $this->target->id);
+
+        $this->assertTrue($this->target->fresh()->hasRole('content_editor'));
+    }
+
+    public function test_api_assign_invalid_role_returns_422(): void
+    {
+        session([StepUpService::SESSION_KEY => now()->toIso8601String()]);
+
+        $this->actingAs($this->admin)
+            ->postJson("/api/v1/admin/users/{$this->target->id}/roles", ['role' => 'nonexistent_role'])
+            ->assertStatus(422);
+    }
+
+    public function test_api_assign_role_forbidden_for_non_admin(): void
+    {
+        $learner = User::factory()->create();
+
+        $this->actingAs($learner)
+            ->postJson("/api/v1/admin/users/{$this->target->id}/roles", ['role' => 'learner'])
+            ->assertForbidden();
     }
 }
